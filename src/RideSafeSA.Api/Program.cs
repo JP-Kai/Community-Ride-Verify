@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.OpenApi.Models;
 using RideSafeSA.Api.Data;
 using RideSafeSA.Api.Dtos;
+using RideSafeSA.Api.Filters;
 using RideSafeSA.Api.Models;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -11,7 +13,28 @@ builder.Services.AddDbContext<AppDbContext>(options =>
         ?? "Data Source=ridesafe.db"));
 
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(); // gives you a free test UI at /swagger
+builder.Services.AddSwaggerGen(options => // gives you a free test UI at /swagger
+{
+    // Lets you click "Authorize" in Swagger UI and paste the admin key
+    // once, instead of typing it on every /api/admin/* request.
+    options.AddSecurityDefinition("AdminApiKey", new OpenApiSecurityScheme
+    {
+        Name = "X-Admin-Key",
+        Type = SecuritySchemeType.ApiKey,
+        In = ParameterLocation.Header,
+        Description = "Required for /api/admin/* endpoints."
+    });
+    options.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "AdminApiKey" }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
 
 var app = builder.Build();
 
@@ -136,11 +159,14 @@ app.MapPost("/api/reports", async (SubmitReportRequest req, AppDbContext db) =>
 });
 
 // --- Admin endpoints (moderation) ---------------------------------------
-// IMPORTANT: these have NO authentication yet. This is fine for local
-// development only. Do not deploy this as-is — see README "Before any
-// real deployment".
+// Gated behind a shared API key (see AdminApiKeyFilter) - set AdminApiKey
+// in config/environment and send it as the X-Admin-Key header. This is a
+// stopgap, not real auth (no accounts/roles) - see README "Before any
+// real deployment" for what a production setup would still need.
 
-app.MapGet("/api/admin/reports/pending", async (AppDbContext db) =>
+var admin = app.MapGroup("/api/admin").AddEndpointFilter<AdminApiKeyFilter>();
+
+admin.MapGet("/reports/pending", async (AppDbContext db) =>
 {
     var pendingReports = await db.Reports
         .Include(r => r.Driver)
@@ -177,7 +203,7 @@ app.MapGet("/api/admin/reports/pending", async (AppDbContext db) =>
     return Results.Ok(prioritized);
 });
 
-app.MapPost("/api/admin/reports/{id}/decision", async (int id, ModerationDecisionRequest req, AppDbContext db) =>
+admin.MapPost("/reports/{id}/decision", async (int id, ModerationDecisionRequest req, AppDbContext db) =>
 {
     var report = await db.Reports.FindAsync(id);
     if (report is null) return Results.NotFound();

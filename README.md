@@ -49,7 +49,16 @@ http://localhost:5080/swagger
 ```
 
 That gives you a clickable UI to try every endpoint listed below without
-writing any client code.
+writing any client code. Click **Authorize** and paste the admin key (see
+below) to unlock the `/api/admin/*` endpoints in the UI.
+
+### Admin key
+
+The `/api/admin/*` endpoints require an `X-Admin-Key` header. Locally,
+`appsettings.Development.json` already sets a placeholder
+(`dev-local-admin-key-change-me`) so things work out of the box. For any
+other environment, set the real value via the `AdminApiKey` environment
+variable (or user-secrets) — never commit a real key to `appsettings.json`.
 
 ---
 
@@ -62,11 +71,15 @@ src/RideSafeSA.Api/
 │   ├── Driver.cs            # a driver, keyed by normalized license plate
 │   ├── Report.cs            # a single report against a driver
 │   ├── ReportCategory.cs    # fixed enum of report types (not free text)
-│   └── ReportStatus.cs      # Pending -> Confirmed/Rejected moderation flow
+│   ├── ReportStatus.cs      # Pending -> Confirmed/Rejected moderation flow
+│   ├── Severity.cs          # Low/Medium/High, used to prioritize review
+│   └── CategorySeverity.cs  # maps each ReportCategory to a Severity
 ├── Data/
 │   └── AppDbContext.cs      # EF Core database context
 ├── Dtos/                    # request/response shapes (what the API accepts/returns)
-└── appsettings.json          # SQLite connection string, logging config
+├── Filters/
+│   └── AdminApiKeyFilter.cs # gates /api/admin/* behind the X-Admin-Key header
+└── appsettings.json          # SQLite connection string, logging config, AdminApiKey
 ```
 
 ---
@@ -77,8 +90,10 @@ src/RideSafeSA.Api/
 |---|---|---|
 | `POST` | `/api/drivers/check` | Rider checks a driver by name + plate before/during a ride |
 | `POST` | `/api/reports` | Rider submits a report against a driver |
-| `GET` | `/api/admin/reports/pending` | Moderator: list reports awaiting review |
-| `POST` | `/api/admin/reports/{id}/decision` | Moderator: approve or reject a pending report |
+| `GET` | `/api/admin/reports/pending` 🔒 | Moderator: list reports awaiting review, prioritized by severity |
+| `POST` | `/api/admin/reports/{id}/decision` 🔒 | Moderator: approve or reject a pending report |
+
+🔒 = requires the `X-Admin-Key` header (see "Admin key" above).
 
 ### Example: checking a driver
 
@@ -139,8 +154,10 @@ POST /api/reports
 
 ## 6. What's intentionally stubbed for now
 
-- **No authentication anywhere**, including the admin endpoints. Fine
-  for solo local development; not fine for any real deployment.
+- **Admin endpoints are behind a single shared API key**, not real
+  auth. There are no accounts, roles, or per-moderator audit trail —
+  anyone with the key can approve/reject any report. Fine for a solo
+  moderator; not fine once there's more than one person moderating.
 - **`PhotoReference` is just a string field**, not a real upload
   pipeline. For the MVP, treat it as a placeholder — actual photo
   storage (and the access-control questions that come with storing
@@ -157,7 +174,7 @@ POST /api/reports
 
 ## 7. Before any real deployment
 
-- Add authentication on the `/api/admin/*` routes at minimum.
+- Replace the shared `AdminApiKey` with real per-moderator accounts/roles.
 - Get a legal read on data retention/POPIA before storing real reports.
 - Move off SQLite to Postgres once you have concurrent users.
 - Add rate-limiting on `/api/reports` (basic defense against mass/spam
@@ -168,7 +185,7 @@ POST /api/reports
 ## 8. Roadmap (rough order)
 
 1. ✅ Standalone backend (this repo)
-2. Telegram bot as a thin client calling this API
-3. Basic moderator auth on admin endpoints
+2. ✅ Basic moderator auth on admin endpoints (shared API key)
+3. Telegram bot as a thin client calling this API
 4. Real photo storage (with access controls)
 5. WhatsApp Business API integration (once funded)
