@@ -7,7 +7,8 @@ public record SubmitReportRequest(
     string LicensePlate,
     ReportCategory Category,
     string? Detail,
-    string? PhotoReference
+    string? PhotoReference,
+    string? SocialMediaLink
 );
 
 public record SubmitReportResponse(int ReportId, string Status, string Message);

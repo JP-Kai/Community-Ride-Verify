@@ -18,6 +18,10 @@ public class Report
     // not an actual upload pipeline yet. See README "What's stubbed".
     public string? PhotoReference { get; set; }
 
+    public string? SocialMediaLink { get; set; }
+
+    public bool HasEvidence => PhotoReference is not null || SocialMediaLink is not null;
+
     public ReportStatus Status { get; set; } = ReportStatus.Pending;
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

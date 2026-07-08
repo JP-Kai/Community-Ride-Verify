@@ -7,8 +7,12 @@ public record PendingReportDto(
     string DriverName,
     string LicensePlate,
     ReportCategory Category,
+    Severity Severity,
     string? Detail,
     string? PhotoReference,
+    string? SocialMediaLink,
+    bool HasEvidence,
+    int CorroboratingReportCount,
     DateTime CreatedAt
 );
 

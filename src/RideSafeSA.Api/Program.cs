@@ -73,6 +73,9 @@ app.MapPost("/api/drivers/check", async (CheckDriverRequest req, AppDbContext db
     // Never expose raw report text here — see Report.Detail comment.
     string summary = confirmed.Count switch
     {
+        0 when pendingCount >= 2 =>
+            $"{pendingCount} unconfirmed reports from different riders, still under review. " +
+            "Not yet verified, but worth extra caution.",
         0 when pendingCount > 0 =>
             $"{pendingCount} unconfirmed report(s) awaiting review. Nothing verified yet.",
         0 => "No confirmed reports on this driver.",
@@ -117,6 +120,7 @@ app.MapPost("/api/reports", async (SubmitReportRequest req, AppDbContext db) =>
         Category = req.Category,
         Detail = req.Detail,
         PhotoReference = req.PhotoReference,
+        SocialMediaLink = req.SocialMediaLink,
         Status = ReportStatus.Pending
     };
 
@@ -138,21 +142,39 @@ app.MapPost("/api/reports", async (SubmitReportRequest req, AppDbContext db) =>
 
 app.MapGet("/api/admin/reports/pending", async (AppDbContext db) =>
 {
-    var pending = await db.Reports
+    var pendingReports = await db.Reports
         .Include(r => r.Driver)
         .Where(r => r.Status == ReportStatus.Pending)
-        .OrderBy(r => r.CreatedAt)
+        .ToListAsync();
+
+    var driverIds = pendingReports.Select(r => r.DriverId).Distinct().ToList();
+
+    var reportCountsByDriver = await db.Reports
+        .Where(r => driverIds.Contains(r.DriverId) && r.Status != ReportStatus.Rejected)
+        .GroupBy(r => r.DriverId)
+        .Select(g => new { DriverId = g.Key, Count = g.Count() })
+        .ToDictionaryAsync(x => x.DriverId, x => x.Count);
+
+    var prioritized = pendingReports
         .Select(r => new PendingReportDto(
             r.Id,
             r.Driver!.Name,
             r.Driver!.LicensePlateNormalized,
             r.Category,
+            CategorySeverity.Of(r.Category),
             r.Detail,
             r.PhotoReference,
+            r.SocialMediaLink,
+            r.HasEvidence,
+            CorroboratingReportCount: reportCountsByDriver.GetValueOrDefault(r.DriverId, 1) - 1,
             r.CreatedAt))
-        .ToListAsync();
+        .OrderByDescending(dto => dto.Severity)
+        .ThenByDescending(dto => dto.CorroboratingReportCount)
+        .ThenByDescending(dto => dto.HasEvidence)
+        .ThenBy(dto => dto.CreatedAt)
+        .ToList();
 
-    return Results.Ok(pending);
+    return Results.Ok(prioritized);
 });
 
 app.MapPost("/api/admin/reports/{id}/decision", async (int id, ModerationDecisionRequest req, AppDbContext db) =>
