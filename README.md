@@ -169,6 +169,11 @@ POST /api/reports
 - **`EnsureCreated()` instead of migrations.** Fine while the schema is
   changing daily and it's just you. Switch to `dotnet ef migrations`
   once the schema stabilizes, so changes are tracked and reversible.
+- **`/api/reports` is rate-limited per IP (5 requests / 10 minutes)**,
+  not per driver or account. It stops naive scripted spam, but someone
+  spread across multiple IPs (or a shared IP like campus/office wifi
+  hitting the limit for everyone behind it) isn't fully covered. Good
+  enough as a first line of defense, not a complete answer.
 
 ---
 
@@ -177,8 +182,9 @@ POST /api/reports
 - Replace the shared `AdminApiKey` with real per-moderator accounts/roles.
 - Get a legal read on data retention/POPIA before storing real reports.
 - Move off SQLite to Postgres once you have concurrent users.
-- Add rate-limiting on `/api/reports` (basic defense against mass/spam
-  submissions).
+- Tune or replace the per-IP rate limit on `/api/reports` once real usage
+  patterns exist (see section 6) — 5/10min per IP is a rough starting
+  guess, not a measured number.
 
 ---
 

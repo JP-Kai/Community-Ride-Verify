@@ -1,9 +1,11 @@
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 using RideSafeSA.Api.Data;
 using RideSafeSA.Api.Dtos;
 using RideSafeSA.Api.Filters;
 using RideSafeSA.Api.Models;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -36,6 +38,31 @@ builder.Services.AddSwaggerGen(options => // gives you a free test UI at /swagge
     });
 });
 
+// Basic anti-spam defense on report submission: 5 reports per 10 minutes
+// per caller IP. Deliberately loose (a genuine rider might submit a
+// couple of legitimate reports in a session) - this stops mass/scripted
+// spam, not a determined single abuser with multiple IPs.
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddPolicy("ReportSubmission", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(10),
+                QueueLimit = 0
+            }));
+
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        await context.HttpContext.Response.WriteAsJsonAsync(
+            new { message = "Too many reports submitted recently. Please try again later." },
+            cancellationToken);
+    };
+});
+
 var app = builder.Build();
 
 // Create the SQLite file + tables automatically on first run.
@@ -53,6 +80,8 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+app.UseRateLimiter();
 
 // --- Helpers ------------------------------------------------------------
 
@@ -156,7 +185,7 @@ app.MapPost("/api/reports", async (SubmitReportRequest req, AppDbContext db) =>
         Message: "Thank you. This report is pending review and is not yet visible " +
                  "to anyone checking this driver."
     ));
-});
+}).RequireRateLimiting("ReportSubmission");
 
 // --- Admin endpoints (moderation) ---------------------------------------
 // Gated behind a shared API key (see AdminApiKeyFilter) - set AdminApiKey
