@@ -42,7 +42,8 @@ dotnet run
 ```
 
 First run will print a local URL (default `http://localhost:5080`) and
-auto-create `ridesafe.db` (a SQLite file) in that folder. Open:
+apply EF Core migrations automatically, creating `ridesafe.db` (a SQLite
+file) in that folder if it doesn't already exist. Open:
 
 ```
 http://localhost:5080/swagger
@@ -59,6 +60,21 @@ The `/api/admin/*` endpoints require an `X-Admin-Key` header. Locally,
 (`dev-local-admin-key-change-me`) so things work out of the box. For any
 other environment, set the real value via the `AdminApiKey` environment
 variable (or user-secrets) — never commit a real key to `appsettings.json`.
+
+### Changing the database schema
+
+Schema changes go through EF Core migrations now, not automatic inference:
+
+```bash
+# one-time: dotnet tool install --global dotnet-ef --version 8.0.8
+cd src/RideSafeSA.Api
+dotnet ef migrations add <DescriptiveName>
+```
+
+That generates a new file under `Migrations/`. Commit it alongside your
+model changes — the app applies any pending migrations automatically on
+startup (`db.Database.Migrate()` in `Program.cs`), so you don't need to
+run anything manually against the SQLite file.
 
 ---
 
@@ -79,6 +95,7 @@ src/RideSafeSA.Api/
 ├── Dtos/                    # request/response shapes (what the API accepts/returns)
 ├── Filters/
 │   └── AdminApiKeyFilter.cs # gates /api/admin/* behind the X-Admin-Key header
+├── Migrations/              # EF Core schema history - see "Changing the database schema"
 └── appsettings.json          # SQLite connection string, logging config, AdminApiKey
 ```
 
@@ -166,9 +183,6 @@ POST /api/reports
 - **No messaging bot yet.** This backend is designed to be called by
   one — Telegram first (free, fast to build), WhatsApp Business API
   later once there's funding/need for it.
-- **`EnsureCreated()` instead of migrations.** Fine while the schema is
-  changing daily and it's just you. Switch to `dotnet ef migrations`
-  once the schema stabilizes, so changes are tracked and reversible.
 - **`/api/reports` is rate-limited per IP (5 requests / 10 minutes)**,
   not per driver or account. It stops naive scripted spam, but someone
   spread across multiple IPs (or a shared IP like campus/office wifi

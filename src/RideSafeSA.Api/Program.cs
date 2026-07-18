@@ -65,14 +65,14 @@ builder.Services.AddRateLimiter(options =>
 
 var app = builder.Build();
 
-// Create the SQLite file + tables automatically on first run.
-// NOTE: fine for an MVP. Once this evolves past a solo prototype,
-// switch to EF Core migrations (dotnet ef migrations add ...) instead
-// of EnsureCreated(), so schema changes are tracked and reversible.
+// Apply any pending EF Core migrations on startup, creating the SQLite
+// file + tables on first run. Schema changes now go through
+// `dotnet ef migrations add <Name>` instead of being inferred at
+// runtime, so they're tracked and reversible. See Migrations/.
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    db.Database.EnsureCreated();
+    db.Database.Migrate();
 }
 
 if (app.Environment.IsDevelopment())
