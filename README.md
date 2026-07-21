@@ -1,10 +1,10 @@
-# RideSafeSA — Backend (MVP)
+# RideSafeSA — Backend + Telegram Bot (MVP)
 
-A standalone backend for a community-driven rideshare driver safety check.
-Riders can check whether a driver has any confirmed reports, and submit a
-report if something went wrong. The messaging platform (Telegram for now,
-WhatsApp later) is a thin client on top of this API — all the real logic
-lives here.
+A community-driven rideshare driver safety check. Riders can check whether
+a driver has any confirmed reports, and submit a report if something went
+wrong. `RideSafeSA.Api` holds all the real logic; `RideSafeSA.Bot` is a
+thin Telegram client on top of it (WhatsApp later) — the bot has no logic
+of its own beyond collecting answers and calling the API.
 
 This is a learning project as much as a product prototype, so the code
 favors clarity over cleverness. Comments in the source explain *why*
@@ -21,6 +21,7 @@ You don't need any of this to read the code, but you do to run it.
 | **.NET 8 SDK** | Compiles and runs the project | https://dotnet.microsoft.com/download |
 | **VS Code** + **C# Dev Kit extension** | Free editor with debugging, IntelliSense | https://code.visualstudio.com |
 | **DB Browser for SQLite** (optional) | Lets you visually inspect `ridesafe.db` | https://sqlitebrowser.org |
+| **A Telegram bot token** (only if running the bot) | Message **@BotFather** on Telegram, send `/newbot`, follow the prompts | https://core.telegram.org/bots/tutorial |
 
 You do **not** need Postman — the project has Swagger built in (see below),
 which gives you a browser-based way to test every endpoint without any
@@ -76,6 +77,34 @@ model changes — the app applies any pending migrations automatically on
 startup (`db.Database.Migrate()` in `Program.cs`), so you don't need to
 run anything manually against the SQLite file.
 
+### Running the Telegram bot
+
+The bot is a separate process from the API - run both at once (two
+terminals):
+
+```bash
+# terminal 1
+cd src/RideSafeSA.Api
+dotnet run
+
+# terminal 2, one-time setup:
+cd src/RideSafeSA.Bot
+dotnet user-secrets init
+dotnet user-secrets set "BotToken" "<token-from-BotFather>"
+# then, every time:
+dotnet run
+```
+
+The token is stored via `dotnet user-secrets` (outside the repo, in your
+user profile) rather than `appsettings.json`, since - unlike the local
+`AdminApiKey` placeholder - this is a live credential: anyone with it can
+control your bot. `RideSafeSA.Bot/appsettings.json` only holds
+`ApiBaseUrl`, which defaults to `http://localhost:5080` and normally
+doesn't need to change for local dev.
+
+Once both are running, message your bot on Telegram: `/start`, `/check`,
+`/report`, `/cancel`.
+
 ---
 
 ## 3. Project structure
@@ -97,6 +126,15 @@ src/RideSafeSA.Api/
 │   └── AdminApiKeyFilter.cs # gates /api/admin/* behind the X-Admin-Key header
 ├── Migrations/              # EF Core schema history - see "Changing the database schema"
 └── appsettings.json          # SQLite connection string, logging config, AdminApiKey
+
+src/RideSafeSA.Bot/
+├── Program.cs               # host/DI setup, reads BotToken + ApiBaseUrl
+├── BotHostedService.cs      # keeps the bot polling Telegram for updates
+├── UpdateHandler.cs         # routes messages/button taps, drives conversation flow
+├── RideSafeApiClient.cs     # thin HTTP wrapper around the Api's public endpoints
+├── Dtos.cs                  # mirrors RideSafeSA.Api's DTOs (no shared library - see comment)
+├── Conversations/           # per-user "what step are they on" state machine
+└── appsettings.json          # ApiBaseUrl only - BotToken lives in user-secrets, never here
 ```
 
 ---
@@ -180,9 +218,20 @@ POST /api/reports
   storage (and the access-control questions that come with storing
   photos of named individuals) is a deliberate next step, not an
   oversight.
-- **No messaging bot yet.** This backend is designed to be called by
-  one — Telegram first (free, fast to build), WhatsApp Business API
-  later once there's funding/need for it.
+- **The Telegram bot only covers rider actions** (`/check`, `/report`) -
+  no moderation from Telegram. Moderators still use Swagger + the admin
+  key. Adding moderator commands later is straightforward (the bot
+  already knows how to call the API); it just needs a config list of
+  allowed Telegram user IDs.
+- **The bot's conversation state is in-memory only** (`ConversationStore`)
+  - it forgets where a user was mid-`/report` if the bot restarts, and
+  won't work correctly if more than one bot instance runs at once. Fine
+  for a handful of users; would need a shared store (DB, Redis) beyond that.
+- **No photo upload from the bot** - `/report` only accepts a pasted
+  link (photo host, social media post) as evidence, matching the API's
+  `PhotoReference`/`SocialMediaLink` being plain string fields for now.
+- **WhatsApp isn't built yet.** Same API, different thin client, once
+  there's funding/need for it.
 - **`/api/reports` is rate-limited per IP (5 requests / 10 minutes)**,
   not per driver or account. It stops naive scripted spam, but someone
   spread across multiple IPs (or a shared IP like campus/office wifi
@@ -206,6 +255,6 @@ POST /api/reports
 
 1. ✅ Standalone backend (this repo)
 2. ✅ Basic moderator auth on admin endpoints (shared API key)
-3. Telegram bot as a thin client calling this API
+3. ✅ Telegram bot as a thin client calling this API
 4. Real photo storage (with access controls)
 5. WhatsApp Business API integration (once funded)
